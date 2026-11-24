@@ -79,7 +79,11 @@ struct VideoItem: Identifiable {
         coverURL = v["mv_img_url"] as? String
         // 播放地址：列表返回的是老IP；真实CDN地址点进详情时由 detail 接口返回
         playURL = v["mv_play_url"] as? String ?? v["url"] as? String
-        likes = v["mv_like"] as? Int ?? 0
+        // 服务端数值全是字符串（"1357"），安全转换
+        if let n = v["mv_like"] as? Int { likes = n }
+        else if let s = v["mv_like"] as? String { likes = Int(s) ?? 0 }
+        else if let d = v["mv_like"] as? Double { likes = Int(d) }
+        else { likes = 0 }
         raw = v
     }
 }
