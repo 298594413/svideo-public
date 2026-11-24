@@ -79,11 +79,7 @@ struct VideoItem: Identifiable {
         coverURL = v["mv_img_url"] as? String
         // 播放地址：列表返回的是老IP；真实CDN地址点进详情时由 detail 接口返回
         playURL = v["mv_play_url"] as? String ?? v["url"] as? String
-        // 服务端数值全是字符串（"1357"），安全转换
-        if let n = v["mv_like"] as? Int { likes = n }
-        else if let s = v["mv_like"] as? String { likes = Int(s) ?? 0 }
-        else if let d = v["mv_like"] as? Double { likes = Int(d) }
-        else { likes = 0 }
+        likes = v["mv_like"] as? Int ?? 0
         raw = v
     }
 }
@@ -200,7 +196,7 @@ struct VideoFeedView: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                            // 广场滚到底自动加载（b52确认可用形态）
+                            // 广场滚到底自动加载下一页
                             if tab == 1 && !squareVideos.isEmpty {
                                 HStack(spacing: 8) {
                                     ProgressView()
@@ -322,14 +318,6 @@ final class ImageCache {
     }
 }
 
-/// 滚动到底检测：内容底部在命名坐标系中的y值
-struct ScrollBottomKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 /// 网格项：第一版排版（GeometryReader 固定高）+ ImageCache 防黑
 struct VideoGridCell: View {
     let v: VideoItem
@@ -414,15 +402,9 @@ struct VideoDetailView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         // 播放器
                         if let url = playerURL {
-                            FullscreenPlayer(url: url)
-                                .frame(height: OrientationLock.isLandscapeOnly ? UIScreen.main.bounds.height : 250)
+                            VideoPlayerView(url: url)
+                                .frame(height: 250)
                                 .onDisappear {
-                                    // 无论从哪退出：复位竖屏 + 停播放（防横屏残留/闪退）
-                                    OrientationLock.isLandscapeOnly = false
-                                    DispatchQueue.main.async {
-                                        UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
-                                        UIViewController.attemptRotationToDeviceOrientation()
-                                    }
                                     NotificationCenter.default.post(name: NSNotification.Name("StopPlayer"), object: nil)
                                 }
                         } else {
@@ -494,7 +476,9 @@ struct VideoDetailView: View {
                         }
                         .padding(.horizontal, 12).padding(.top, 6)
 
-
+                        if !actionMsg.isEmpty {
+                            Text(actionMsg).font(.caption).foregroundColor(.orange).padding(.horizontal, 12)
+                        }
 
                         if let sz = cache.sizeText(for: v.id) {
                             Label("已缓存到本地 \(sz)", systemImage: "arrow.down.circle.fill")
@@ -553,14 +537,6 @@ struct VideoDetailView: View {
                 loadDetail()
                 loadComments()
             }
-            .alert("提示", isPresented: Binding(
-                get: { !actionMsg.isEmpty },
-                set: { if !$0 { actionMsg = "" } }
-            )) {
-                Button("知道了", role: .cancel) {}
-            } message: {
-                Text(actionMsg)
-            }
             .navigationViewStyle(.stack)
         }
     }
@@ -571,14 +547,8 @@ struct VideoDetailView: View {
             await MainActor.run {
                 detail = d
                 if let d = d {
-                    func asInt(_ v: Any?) -> Int {
-                        if let n = v as? Int { return n }
-                        if let s = v as? String { return Int(s) ?? 0 }
-                        if let d = v as? Double { return Int(d) }
-                        return 0
-                    }
-                    collected = asInt(d["is_collect"]) == 1
-                    followed = asInt(d["is_attention"]) == 1
+                    collected = (d["is_collect"] as? Int ?? 0) == 1
+                    followed = (d["is_attention"] as? Int ?? 0) == 1
                     // 播放地址就绪后立即后台缓存
                     if let remote = d["mv_play_url"] as? String, let u = URL(string: remote) {
                         cache.cacheVideo(remote: u, id: v.id, author: v.author, title: v.title)
@@ -615,55 +585,6 @@ struct VideoDetailView: View {
 }
 
 /// 播放器：AVPlayer 直接播远程URL（边下边播），本地缓存优先
-/// 播放器 + 全屏按钮（全屏时横屏，尊重系统旋转锁）
-struct FullscreenPlayer: View {
-    let url: URL
-    @State private var fullscreen = false
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            VideoPlayerView(url: url)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea(fullscreen ? .all : [])
-
-            // 全屏按钮：右下角（避开 AVPlayer 顶部音量/进度控制区）
-            Button {
-                fullscreen.toggle()
-                OrientationLock.isLandscapeOnly = fullscreen
-                // iOS15 兼容旋转触发（横屏双向，跟随设备转向）
-                DispatchQueue.main.async {
-                    if #available(iOS 16.0, *) {
-                        UIWindowScene.keyWindowScene?
-                            .requestGeometryUpdate(.iOS(interfaceOrientations: fullscreen ? .landscape : .portrait))
-                    }
-                    UIDevice.current.setValue(
-                        fullscreen ? UIInterfaceOrientation.landscapeRight.rawValue
-                                   : UIInterfaceOrientation.portrait.rawValue,
-                        forKey: "orientation")
-                    UIViewController.attemptRotationToDeviceOrientation()
-                }
-            } label: {
-                Image(systemName: fullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(7)
-                    .background(Color.black.opacity(0.45))
-                    .cornerRadius(7)
-            }
-            .padding(.trailing, 8)
-            .padding(.bottom, fullscreen ? 24 : 8)
-        }
-    }
-}
-
-extension UIWindowScene {
-    static var keyWindowScene: UIWindowScene? {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first
-    }
-}
-
 struct VideoPlayerView: UIViewControllerRepresentable {
     let url: URL
 
@@ -676,7 +597,7 @@ struct VideoPlayerView: UIViewControllerRepresentable {
         player.play()
         vc.player = player
         vc.videoGravity = .resizeAspect
-        // 播放界面销毁 → 暂停+释放（修复退出后音频残留）
+        // 播放界面销毁通知 → 暂停+释放（修退出后音频残留）
         context.coordinator.observer = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("StopPlayer"), object: nil, queue: .main) { [weak player] _ in
             player?.pause()
@@ -686,17 +607,14 @@ struct VideoPlayerView: UIViewControllerRepresentable {
         return vc
     }
     func updateUIViewController(_ u: AVPlayerViewController, context: Context) {}
-
     func makeCoordinator() -> Coordinator { Coordinator() }
-
     class Coordinator {
         var observer: AnyObject?
-        deinit {
-            if let o = observer { NotificationCenter.default.removeObserver(o) }
-        }
+        deinit { if let o = observer { NotificationCenter.default.removeObserver(o) } }
     }
 }
 
+/// 作者入口数据
 struct AuthorProfile: Identifiable {
     let id = UUID()
     let muId: String
