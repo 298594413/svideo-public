@@ -200,16 +200,31 @@ struct VideoFeedView: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                            // 广场滚到底自动加载下一页
+                            // 广场滚到底自动加载下一页（onAppear + 手动按钮双保险）
                             if tab == 1 && !squareVideos.isEmpty {
-                                HStack(spacing: 8) {
-                                    ProgressView()
-                                    Text(loadingMore ? "加载中..." : (squareEnd ? "没有更多了" : "上拉加载更多"))
-                                        .font(.caption).foregroundColor(.gray)
+                                VStack(spacing: 8) {
+                                    if loadingMore {
+                                        HStack(spacing: 8) {
+                                            ProgressView()
+                                            Text("加载中...").font(.caption).foregroundColor(.gray)
+                                        }
+                                    } else if squareEnd {
+                                        Text("没有更多了").font(.caption).foregroundColor(.gray)
+                                    } else {
+                                        Text("上拉自动加载").font(.caption).foregroundColor(.gray)
+                                    }
+                                    // 兜底：自动触发失效时手动点
+                                    if !squareEnd && !loadingMore {
+                                        Button("加载更多") { loadMore() }
+                                            .font(.subheadline).foregroundColor(.blue)
+                                    }
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
-                                .onAppear { loadMore() }
+                                .onAppear {
+                                    // 延迟触发避免 LazyVGrid 初始化误触
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { loadMore() }
+                                }
                             }
                         }
                     }
