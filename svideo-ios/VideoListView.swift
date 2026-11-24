@@ -200,13 +200,16 @@ struct VideoFeedView: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                            // 广场滚到底自动加载（第一版方案：纯哨兵无按钮）
-                            // .id 绑定总数：加载完成后哨兵重建，一页数据少时也能续触发
-                            if tab == 1 && !squareVideos.isEmpty && !squareEnd {
-                                Color.clear
-                                    .frame(height: 50)
-                                    .id(squareVideos.count)
-                                    .onAppear { loadMore() }
+                            // 广场滚到底自动加载（b52确认可用形态）
+                            if tab == 1 && !squareVideos.isEmpty {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text(loadingMore ? "加载中..." : (squareEnd ? "没有更多了" : "上拉加载更多"))
+                                        .font(.caption).foregroundColor(.gray)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .onAppear { loadMore() }
                             }
                         }
                     }
