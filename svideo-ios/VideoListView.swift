@@ -200,37 +200,13 @@ struct VideoFeedView: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                            // 广场滚到底自动加载（GeometryReader 几何检测，杜绝 onAppear 误触）
-                            if tab == 1 && !squareVideos.isEmpty {
-                                Group {
-                                    if loadingMore {
-                                        HStack(spacing: 8) {
-                                            ProgressView()
-                                            Text("加载中...").font(.caption).foregroundColor(.gray)
-                                        }
-                                    } else if squareEnd {
-                                        Text("没有更多了").font(.caption).foregroundColor(.gray)
-                                    } else {
-                                        Button("加载更多") { loadMore() }
-                                            .font(.subheadline).foregroundColor(.blue)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    // 底部哨兵：完全进入屏幕才触发（滚动到底）
-                                    GeometryReader { g in
-                                        Color.clear.onAppear {
-                                            // 哨兵可见(其底部在屏幕内)且不在加载中 → 触发
-                                            if g.frame(in: .global).maxY < UIScreen.main.bounds.height - 50 {
-                                                loadMore()
-                                            }
-                                        }
-                                        .onChange(of: g.frame(in: .global).maxY) { y in
-                                            if y < UIScreen.main.bounds.height - 50 { loadMore() }
-                                        }
-                                    }
-                                )
+                            // 广场滚到底自动加载（第一版完美方案：纯哨兵，无按钮）
+                            // id 绑定视频总数：每次加载完成哨兵重建，若仍在屏内会再次触发（防一页数据少卡死）
+                            if tab == 1 && !squareVideos.isEmpty && !squareEnd {
+                                Color.clear
+                                    .frame(height: 50)
+                                    .id(squareVideos.count)
+                                    .onAppear { loadMore() }
                             }
                         }
                     }
