@@ -417,7 +417,12 @@ struct VideoDetailView: View {
                             FullscreenPlayer(url: url)
                                 .frame(height: OrientationLock.isLandscapeOnly ? UIScreen.main.bounds.height : 250)
                                 .onDisappear {
+                                    // 无论从哪退出：复位竖屏 + 停播放（防横屏残留/闪退）
                                     OrientationLock.isLandscapeOnly = false
+                                    DispatchQueue.main.async {
+                                        UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+                                        UIViewController.attemptRotationToDeviceOrientation()
+                                    }
                                     NotificationCenter.default.post(name: NSNotification.Name("StopPlayer"), object: nil)
                                 }
                         } else {
@@ -616,15 +621,16 @@ struct FullscreenPlayer: View {
     @State private var fullscreen = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .bottomTrailing) {
             VideoPlayerView(url: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(fullscreen ? .all : [])
 
+            // 全屏按钮：右下角（避开 AVPlayer 顶部音量/进度控制区）
             Button {
                 fullscreen.toggle()
                 OrientationLock.isLandscapeOnly = fullscreen
-                // iOS15 兼容旋转触发
+                // iOS15 兼容旋转触发（横屏双向，跟随设备转向）
                 DispatchQueue.main.async {
                     if #available(iOS 16.0, *) {
                         UIWindowScene.keyWindowScene?
@@ -638,13 +644,14 @@ struct FullscreenPlayer: View {
                 }
             } label: {
                 Image(systemName: fullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundColor(.white)
-                    .padding(8)
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(8)
+                    .padding(7)
+                    .background(Color.black.opacity(0.45))
+                    .cornerRadius(7)
             }
-            .padding(10)
+            .padding(.trailing, 8)
+            .padding(.bottom, fullscreen ? 24 : 8)
         }
     }
 }
