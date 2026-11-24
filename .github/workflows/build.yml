@@ -1,0 +1,55 @@
+name: Build svideo IPA
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: brew install xcodegen ldid
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project svideo-ios.xcodeproj -scheme svideo-ios \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            clean build 2>&1 | tee build.log
+      - name: Show build errors
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+      - name: Pack IPA
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -type d | head -1)
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          VER=$(plutil -extract CFBundleShortVersionString raw -o - Payload/svideo.app/Info.plist)
+          BLD=$(plutil -extract CFBundleVersion raw -o - Payload/svideo.app/Info.plist)
+          IPA_NAME="svideo_v${VER}_b${BLD}.ipa"
+          echo "IPA_NAME=$IPA_NAME" >> $GITHUB_ENV
+          echo "Pack as $IPA_NAME"
+          zip -qry "$IPA_NAME" Payload
+      - name: ldid fake-sign
+        run: |
+          rm -rf _s && mkdir _s && cd _s
+          unzip -q "../$IPA_NAME"
+          find Payload/svideo.app -type f -perm +111 | while read f; do
+            if file "$f" | grep -q 'Mach-O'; then ldid -S "$f" 2>/dev/null || true; fi
+          done
+          rm ../"$IPA_NAME"
+          zip -qry "../$IPA_NAME" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: svideo-TrollStore
+          path: "*.ipa"
+          if-no-files-found: error
