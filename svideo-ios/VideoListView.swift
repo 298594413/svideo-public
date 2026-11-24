@@ -200,13 +200,20 @@ struct VideoFeedView: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                            // 广场滚到底自动加载（第一版完美方案：纯哨兵，无按钮）
-                            // id 绑定视频总数：每次加载完成哨兵重建，若仍在屏内会再次触发（防一页数据少卡死）
-                            if tab == 1 && !squareVideos.isEmpty && !squareEnd {
-                                Color.clear
-                                    .frame(height: 50)
-                                    .id(squareVideos.count)
-                                    .onAppear { loadMore() }
+                            .padding(.bottom, 60)
+                            // 滚动到底检测：上报内容底部坐标
+                            .background(
+                                GeometryReader { g in
+                                    Color.clear.preference(key: ScrollBottomKey.self,
+                                        value: g.frame(in: .named("sqScroll")).maxY)
+                                }
+                            )
+                        }
+                        .coordinateSpace(name: "sqScroll")
+                        .onPreferenceChange(ScrollBottomKey.self) { bottom in
+                            if tab == 1 && !squareVideos.isEmpty && !squareEnd
+                                && !loadingMore && bottom < UIScreen.main.bounds.height + 60 {
+                                loadMore()
                             }
                         }
                     }
@@ -316,6 +323,14 @@ final class ImageCache {
             try? data.write(to: self.diskURL(url.absoluteString))
             DispatchQueue.main.async { completion(img) }
         }.resume()
+    }
+}
+
+/// 滚动到底检测：内容底部在命名坐标系中的y值
+struct ScrollBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
