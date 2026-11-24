@@ -200,9 +200,9 @@ struct VideoFeedView: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                            // 广场滚到底自动加载下一页（onAppear + 手动按钮双保险）
+                            // 广场滚到底自动加载（GeometryReader 几何检测，杜绝 onAppear 误触）
                             if tab == 1 && !squareVideos.isEmpty {
-                                VStack(spacing: 8) {
+                                Group {
                                     if loadingMore {
                                         HStack(spacing: 8) {
                                             ProgressView()
@@ -211,20 +211,26 @@ struct VideoFeedView: View {
                                     } else if squareEnd {
                                         Text("没有更多了").font(.caption).foregroundColor(.gray)
                                     } else {
-                                        Text("上拉自动加载").font(.caption).foregroundColor(.gray)
-                                    }
-                                    // 兜底：自动触发失效时手动点
-                                    if !squareEnd && !loadingMore {
                                         Button("加载更多") { loadMore() }
                                             .font(.subheadline).foregroundColor(.blue)
                                     }
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
-                                .onAppear {
-                                    // 延迟触发避免 LazyVGrid 初始化误触
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { loadMore() }
-                                }
+                                .background(
+                                    // 底部哨兵：完全进入屏幕才触发（滚动到底）
+                                    GeometryReader { g in
+                                        Color.clear.onAppear {
+                                            // 哨兵可见(其底部在屏幕内)且不在加载中 → 触发
+                                            if g.frame(in: .global).maxY < UIScreen.main.bounds.height - 50 {
+                                                loadMore()
+                                            }
+                                        }
+                                        .onChange(of: g.frame(in: .global).maxY) { y in
+                                            if y < UIScreen.main.bounds.height - 50 { loadMore() }
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
