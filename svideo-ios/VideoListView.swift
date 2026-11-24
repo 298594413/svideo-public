@@ -416,6 +416,9 @@ struct VideoDetailView: View {
                         if let url = playerURL {
                             VideoPlayerView(url: url)
                                 .frame(height: 250)
+                                .onDisappear {
+                                    NotificationCenter.default.post(name: NSNotification.Name("StopPlayer"), object: nil)
+                                }
                         } else {
                             ZStack {
                                 Rectangle().fill(Color.black).frame(height: 250)
@@ -485,9 +488,7 @@ struct VideoDetailView: View {
                         }
                         .padding(.horizontal, 12).padding(.top, 6)
 
-                        if !actionMsg.isEmpty {
-                            Text(actionMsg).font(.caption).foregroundColor(.orange).padding(.horizontal, 12)
-                        }
+
 
                         if let sz = cache.sizeText(for: v.id) {
                             Label("已缓存到本地 \(sz)", systemImage: "arrow.down.circle.fill")
@@ -545,6 +546,14 @@ struct VideoDetailView: View {
             .onAppear {
                 loadDetail()
                 loadComments()
+            }
+            .alert("提示", isPresented: Binding(
+                get: { !actionMsg.isEmpty },
+                set: { if !$0 { actionMsg = "" } }
+            )) {
+                Button("知道了", role: .cancel) {}
+            } message: {
+                Text(actionMsg)
             }
             .navigationViewStyle(.stack)
         }
@@ -608,15 +617,31 @@ struct VideoPlayerView: UIViewControllerRepresentable {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
         let vc = AVPlayerViewController()
-        vc.player = AVPlayer(url: url)
-        vc.player?.play()
+        let player = AVPlayer(url: url)
+        player.play()
+        vc.player = player
         vc.videoGravity = .resizeAspect
+        // 播放界面销毁 → 暂停+释放（修复退出后音频残留）
+        context.coordinator.observer = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("StopPlayer"), object: nil, queue: .main) { [weak player] _ in
+            player?.pause()
+            player?.replaceCurrentItem(with: nil)
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
         return vc
     }
     func updateUIViewController(_ u: AVPlayerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    class Coordinator {
+        var observer: AnyObject?
+        deinit {
+            if let o = observer { NotificationCenter.default.removeObserver(o) }
+        }
+    }
 }
 
-/// 作者入口数据
 struct AuthorProfile: Identifiable {
     let id = UUID()
     let muId: String
