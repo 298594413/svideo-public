@@ -1,0 +1,25 @@
+name: svideo-ios
+options:
+  bundleIdPrefix: com.personal
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: 1
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGNING_ALLOWED: "NO"
+    SWIFT_VERSION: "5.0"
+    INFOPLIST_FILE: svideo-ios/Info.plist
+targets:
+  svideo-ios:
+    type: application
+    platform: iOS
+    sources:
+      - svideo-ios
+    settings:
+      base:
+        PRODUCT_NAME: svideo
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.svideo
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
