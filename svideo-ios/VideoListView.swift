@@ -79,7 +79,11 @@ struct VideoItem: Identifiable {
         coverURL = v["mv_img_url"] as? String
         // 播放地址：列表返回的是老IP；真实CDN地址点进详情时由 detail 接口返回
         playURL = v["mv_play_url"] as? String ?? v["url"] as? String
-        likes = v["mv_like"] as? Int ?? 0
+        // 服务端数值全是字符串（"1357"），安全转换
+        if let n = v["mv_like"] as? Int { likes = n }
+        else if let s = v["mv_like"] as? String { likes = Int(s) ?? 0 }
+        else if let d = v["mv_like"] as? Double { likes = Int(d) }
+        else { likes = 0 }
         raw = v
     }
 }
@@ -544,8 +548,14 @@ struct VideoDetailView: View {
             await MainActor.run {
                 detail = d
                 if let d = d {
-                    collected = (d["is_collect"] as? Int ?? 0) == 1
-                    followed = (d["is_attention"] as? Int ?? 0) == 1
+                    func asInt(_ v: Any?) -> Int {
+                        if let n = v as? Int { return n }
+                        if let s = v as? String { return Int(s) ?? 0 }
+                        if let d = v as? Double { return Int(d) }
+                        return 0
+                    }
+                    collected = asInt(d["is_collect"]) == 1
+                    followed = asInt(d["is_attention"]) == 1
                     // 播放地址就绪后立即后台缓存
                     if let remote = d["mv_play_url"] as? String, let u = URL(string: remote) {
                         cache.cacheVideo(remote: u, id: v.id, author: v.author, title: v.title)
