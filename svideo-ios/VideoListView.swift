@@ -414,9 +414,10 @@ struct VideoDetailView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         // 播放器
                         if let url = playerURL {
-                            VideoPlayerView(url: url)
-                                .frame(height: 250)
+                            FullscreenPlayer(url: url)
+                                .frame(height: OrientationLock.isLandscapeOnly ? UIScreen.main.bounds.height : 250)
                                 .onDisappear {
+                                    OrientationLock.isLandscapeOnly = false
                                     NotificationCenter.default.post(name: NSNotification.Name("StopPlayer"), object: nil)
                                 }
                         } else {
@@ -609,6 +610,53 @@ struct VideoDetailView: View {
 }
 
 /// 播放器：AVPlayer 直接播远程URL（边下边播），本地缓存优先
+/// 播放器 + 全屏按钮（全屏时横屏，尊重系统旋转锁）
+struct FullscreenPlayer: View {
+    let url: URL
+    @State private var fullscreen = false
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            VideoPlayerView(url: url)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea(fullscreen ? .all : [])
+
+            Button {
+                fullscreen.toggle()
+                OrientationLock.isLandscapeOnly = fullscreen
+                // iOS15 兼容旋转触发
+                DispatchQueue.main.async {
+                    if #available(iOS 16.0, *) {
+                        UIWindowScene.keyWindowScene?
+                            .requestGeometryUpdate(.iOS(interfaceOrientations: fullscreen ? .landscape : .portrait))
+                    }
+                    UIDevice.current.setValue(
+                        fullscreen ? UIInterfaceOrientation.landscapeRight.rawValue
+                                   : UIInterfaceOrientation.portrait.rawValue,
+                        forKey: "orientation")
+                    UIViewController.attemptRotationToDeviceOrientation()
+                }
+            } label: {
+                Image(systemName: fullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(8)
+            }
+            .padding(10)
+        }
+    }
+}
+
+extension UIWindowScene {
+    static var keyWindowScene: UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+    }
+}
+
 struct VideoPlayerView: UIViewControllerRepresentable {
     let url: URL
 
