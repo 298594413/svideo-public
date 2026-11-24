@@ -19,11 +19,6 @@ final class API {
     let aesPwd = "625202f9149maomi"
     let aesIv  = "5efd3f6060emaomi"
 
-    /// 统一读取当前用户 uId（String/Int 双兼容已写入）
-    var currentUid: String {
-        UserDefaults.standard.string(forKey: "mu_id") ?? ""
-    }
-
     /// 当前可用域名（探测后缓存）
     private(set) var currentDomain: String?
     /// 登录 token（持久化到 UserDefaults，重启保持登录）
@@ -349,7 +344,7 @@ final class API {
             for k in ["mu_token", "token", "accessToken", "uToken", "sessionId"] {
                 if let t = d[k] as? String { token = t; break }
             }
-            // mu_id 兼容 String/Int（服务端两种都可能）
+            // mu_id 兼容 String/Int（评论/收藏的鉴权全靠 data 里的 uId）
             if let uid = d["mu_id"] as? String {
                 UserDefaults.standard.set(uid, forKey: "mu_id")
             } else if let uid = d["mu_id"] as? Int {
@@ -370,26 +365,26 @@ final class API {
     }
 
     func addComment(mvId: String, content: String) async -> [String: Any]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         // 抓包确认字段名 mcText
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"mvId\":\"\(mvId)\",\"mcText\":\"\(content)\"}")
         return await call("/api/community/addComment", params: ["data": enc])
     }
 
     func likeVideo(mvId: String) async -> [String: Any]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"mvId\":\"\(mvId)\"}")
         return await call("/api/community/videoLike", params: ["data": enc])
     }
 
     func collectVideo(mvId: String) async -> [String: Any]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"mvId\":\"\(mvId)\"}")
         return await call("/api/community/videoCollect", params: ["data": enc])
     }
 
     func collectList(page: Int = 1) async -> [[String: Any]]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"page\":\(page),\"perPage\":14}")
         let r = await call("/api/community/videoCollectList", params: ["data": enc])
         guard let data = r?["data"] else { return nil }
@@ -409,7 +404,7 @@ final class API {
 
     /// 关注列表（实测需 uId，返回关注的用户数组）
     func attentionListUsers() async -> [[String: Any]]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\"}")
         let r = await call("/api/community/attentionList", params: ["data": enc])
         guard let data = r?["data"] else { return nil }
@@ -420,14 +415,14 @@ final class API {
 
     /// 关注用户（实测参数 attentionId + uId，带token）
     func followUser(attentionId: String) async -> [String: Any]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"attentionId\":\"\(attentionId)\",\"uId\":\"\(uid)\"}")
         return await call("/api/community/attentionUser", params: ["data": enc])
     }
 
     /// 与某用户的私信记录
     func oneChats(otherUid: String) async -> [[String: Any]]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"otherUid\":\"\(otherUid)\"}")
         let r = await call("/api/chats/listOneChats", params: ["data": enc])
         guard let data = r?["data"] else { return nil }
@@ -438,14 +433,14 @@ final class API {
 
     /// 发私信
     func sendMsg(toUid: String, content: String) async -> [String: Any]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"toUid\":\"\(toUid)\",\"content\":\"\(content)\"}")
         return await call("/api/chats/sendMsg", params: ["data": enc])
     }
 
     /// 私信用户列表
     func chatUsers() async -> [[String: Any]]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\"}")
         let r = await call("/api/chats/getChatUsers", params: ["data": enc])
         guard let data = r?["data"] else { return nil }
@@ -456,7 +451,7 @@ final class API {
 
     /// 用户信息（登录后显示资料）—— 抓包确认用 userdata + uId
     func userInfo() async -> [String: Any]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\"}")
         let r = await call("/api/users/userdata", params: ["data": enc])
         return r?["data"] as? [String: Any]
@@ -466,7 +461,7 @@ final class API {
     // 抓包确认：data={"page":N,"perPage":14,"uId":登录ID}
     // 热门=listHot（最新1-2天），广场=listAll（可翻页看历史）
     private func videoListRequest(_ path: String, page: Int, perPage: Int = 14) async -> [[String: Any]]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"page\":\(page),\"perPage\":\(perPage),\"uId\":\"\(uid)\"}")
         let r = await call(path, params: ["data": enc])
         guard let data = r?["data"] else { return nil }
@@ -487,7 +482,7 @@ final class API {
 
     /// 视频详情：服务端直接返回替换好CDN域名的播放地址 + 收藏/关注状态
     func videoDetail(mvId: String) async -> [String: Any]? {
-        let uid = currentUid
+        let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
         let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"mvId\":\"\(mvId)\",\"type\":\"2\"}")
         let r = await call("/api/videos/detail", params: ["data": enc])
         return r?["data"] as? [String: Any]
