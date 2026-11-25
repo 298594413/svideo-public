@@ -367,11 +367,21 @@ struct VideoFeedView: View {
         squarePage += 1
         Task {
             let l = await API.shared.squareList(page: squarePage)
+            let nextItems = (l ?? []).map { VideoItem($0) }
             await MainActor.run {
-                let items = (l ?? []).map { VideoItem($0) }
-                squareVideos += items
-                if items.isEmpty { squareEnd = true }   // 空页=到底
+                squareVideos += nextItems
+                if nextItems.isEmpty { squareEnd = true }   // 空页=到底
                 loadingMore = false
+                // 本页封面并发预加载
+                ImageCache.shared.prefetch(nextItems.map { $0.coverURL.flatMap(URL.init) })
+                // 静默预拉下一页：先取列表，再预取其封面（滑动到位时封面已在缓存）
+                if !nextItems.isEmpty && squarePage < 30 {
+                    let np = squarePage + 1
+                    Task {
+                        let nl = await API.shared.squareList(page: np) ?? []
+                        ImageCache.shared.prefetch(nl.map { VideoItem($0).coverURL.flatMap(URL.init) })
+                    }
+                }
             }
         }
     }
