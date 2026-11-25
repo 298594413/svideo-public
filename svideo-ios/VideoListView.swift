@@ -268,7 +268,7 @@ struct VideoFeedView: View {
                 loading = false
                 loadError = err
                 // 预加载本页封面（滑动时秒出）
-                ImageCache.shared.prefetch(items.map { $0.coverURL })
+                ImageCache.shared.prefetch(items.map { $0.coverURL.flatMap(URL.init) })
             }
         }
     }
