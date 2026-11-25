@@ -443,13 +443,18 @@ final class ImageCache {
         return UIImage(cgImage: cg)
     }
 
-    /// 批量预加载封面（列表加载后调用）
+    /// 批量并发预加载封面（服务端CDN慢，串行太慢；6路并发）
     func prefetch(_ urls: [URL?]) {
-        DispatchQueue.global(qos: .utility).async {
-            for u in urls.compactMap({ $0 }) {
-                if self.cachedImage(for: u) == nil {
-                    self.load(url: u) { _ in }   // 拉进磁盘缓存
-                }
+        let targets = urls.compactMap { $0 }.filter { cachedImage(for: $0) == nil }
+        guard !targets.isEmpty else { return }
+        let group = DispatchGroup()
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 6
+        for u in targets {
+            group.enter()
+            q.addOperation {
+                self.load(url: u) { _ in }   // 拉进磁盘缓存
+                group.leave()
             }
         }
     }
