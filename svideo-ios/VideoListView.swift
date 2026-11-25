@@ -120,11 +120,15 @@ struct VideoFeedView: View {
     @State private var hotVideos: [VideoItem] = []
     @State private var squareVideos: [VideoItem] = []
     @State private var attentionUsers: [[String: Any]] = []
+    @State private var attnPage = 1
+    @State private var attnEnd = false
+    @State private var attnLoading = false
     @State private var showLogin = false
     @State private var loggedIn = false
     @State private var loading = false
     @State private var loadError = ""
     @State private var selected: VideoItem?
+    @State private var profile: AuthorProfile?
     @State private var detail: [String: Any]?
     @State private var loadingMore = false
     @State private var squarePage = 1
@@ -157,74 +161,22 @@ struct VideoFeedView: View {
 
                 Divider()
 
-                // 内容区
-                ZStack {
-                    Color.white
-                    if loading {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("加载中...").font(.caption).foregroundColor(.gray)
-                        }
-                    } else if currentList.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: "video.slash").font(.largeTitle).foregroundColor(.gray)
-                            Text(loadError.isEmpty ? "暂无内容" : loadError).font(.subheadline).foregroundColor(.gray)
-                            Button("重试") { load() }
-                        }
-                    } else if tab == 2 {
-                        // 关注Tab：用户列表（attentionList 返回关注的用户）
-                        List {
-                            ForEach(Array(attentionUsers.enumerated()), id: \.offset) { _, u in
-                                HStack(spacing: 10) {
-                                    AsyncImage(url: (u["mu_avatar"] as? String).flatMap(URL.init)) { ph in
-                                        if case .success(let img) = ph {
-                                            img.resizable().scaledToFill()
-                                        } else {
-                                            Image(systemName: "person.circle.fill")
-                                                .resizable().scaledToFit().foregroundColor(.gray)
-                                        }
-                                    }
-                                    .frame(width: 44, height: 44).clipped().cornerRadius(22)
-
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(u["mu_name"] as? String ?? "用户").font(.subheadline).bold()
-                                        Text("粉丝 \(u["mu_attention_me_count"] as? String ?? "0") · \(u["levelName"] as? String ?? "")")
-                                            .font(.caption).foregroundColor(.gray)
-                                    }
-                                    Spacer()
-                                    Text("已关注").font(.caption).foregroundColor(.gray)
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-                        .listStyle(.plain)
-                } else {
-                        ScrollView {
-                            LazyVGrid(columns: cols, spacing: 2) {
-                                ForEach(currentList) { v in
-                                    VideoGridCell(v: v, cache: cache)
-                                        .onTapGesture { tapVideo(v) }
-                                        .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.horizontal, 2)
-                            .padding(.bottom, 60)
-                            // 滚动到底检测（v2.5 验证：秒出）
-                            .background(
-                                GeometryReader { g in
-                                    Color.clear.preference(key: ScrollBottomKey.self,
-                                        value: g.frame(in: .named("sqScroll")).maxY)
-                                }
-                            )
-                        }
-                        .coordinateSpace(name: "sqScroll")
-                        .onPreferenceChange(ScrollBottomKey.self) { bottom in
-                            if tab == 1 && !squareVideos.isEmpty && !squareEnd
-                                && !loadingMore && bottom < UIScreen.main.bounds.height + 60 {
-                                loadMore()
-                            }
-                        }
-                    }
+                // 内容区（左右滑动切换 Tab）
+                TabView(selection: $tab) {
+                    tabContent(hotVideos, isSquare: false)
+                        .tag(0)
+                    tabContent(squareVideos, isSquare: true)
+                        .tag(1)
+                    attentionTab
+                        .tag(2)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .onChange(of: tab) { _ in
+                    // 首次切到某tab时加载其数据
+                    if tab == 2 && attentionUsers.isEmpty { load() }
+                }
+                .sheet(item: $profile) { ap in
+                    AuthorProfileView(profile: ap)
                 }
             }
             .navigationBarHidden(true)
@@ -246,6 +198,134 @@ struct VideoFeedView: View {
         [hotVideos, squareVideos, hotVideos][tab]
     }
 
+    /// 网格Tab内容（热门/广场共用）
+    @ViewBuilder
+    private func tabContent(_ items: [VideoItem], isSquare: Bool) -> some View {
+        ZStack {
+            Color.white
+            if loading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("加载中...").font(.caption).foregroundColor(.gray)
+                }
+            } else if items.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "video.slash").font(.largeTitle).foregroundColor(.gray)
+                    Text(loadError.isEmpty ? "暂无内容" : loadError).font(.subheadline).foregroundColor(.gray)
+                    Button("重试") { load() }
+                }
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: cols, spacing: 2) {
+                        ForEach(items) { v in
+                            VideoGridCell(v: v, cache: cache)
+                                .onTapGesture { tapVideo(v) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.bottom, 60)
+                    // 广场滚动到底检测（v2.5 秒出方案）
+                    .background(
+                        GeometryReader { g in
+                            Color.clear.preference(key: ScrollBottomKey.self,
+                                value: g.frame(in: .named("sqScroll")).maxY)
+                        }
+                    )
+                }
+                .coordinateSpace(name: "sqScroll")
+                .onPreferenceChange(ScrollBottomKey.self) { bottom in
+                    if isSquare && !squareVideos.isEmpty && !squareEnd
+                        && !loadingMore && bottom < UIScreen.main.bounds.height + 60 {
+                        loadMore()
+                    }
+                }
+            }
+        }
+    }
+
+    /// 关注Tab（用户列表，可点击进作者主页，滚动加载）
+    private var attentionTab: some View {
+        ZStack {
+            Color.white
+            if attnLoading && attentionUsers.isEmpty {
+                VStack { ProgressView(); Text("加载中...").font(.caption) }
+            } else if attentionUsers.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "person.2").font(.largeTitle).foregroundColor(.gray)
+                    Text("暂无关注（需登录）").font(.subheadline).foregroundColor(.gray)
+                    Button("重试") { loadAttention() }
+                }
+            } else {
+                List {
+                    ForEach(Array(attentionUsers.enumerated()), id: \.offset) { _, u in
+                        Button {
+                            if let uid = u["mu_id"] as? String ?? (u["mu_id"] as? Int).map(String.init) {
+                                profile = AuthorProfile(muId: uid, name: u["mu_name"] as? String ?? "用户")
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                CachedThumb(url: u["mu_avatar"] as? String)
+                                    .frame(width: 44, height: 44).clipped().cornerRadius(22)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(u["mu_name"] as? String ?? "用户").font(.subheadline).bold()
+                                        .foregroundColor(.primary)
+                                    Text("粉丝 \(u["mu_attention_me_count"] as? String ?? "0") · \(u["levelName"] as? String ?? "")")
+                                        .font(.caption).foregroundColor(.gray)
+                                }
+                                Spacer()
+                                Text("已关注").font(.caption).foregroundColor(.gray)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    // 加载更多（累积式分页：拉完最后一页取增量）
+                    if !attnEnd {
+                        Color.clear.frame(height: 40)
+                            .onAppear { loadMoreAttention() }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+
+    private func loadAttention() {
+        attnLoading = true
+        attnPage = 1; attnEnd = false
+        Task {
+            let l = await API.shared.attentionListUsers(page: 1) ?? []
+            await MainActor.run {
+                attentionUsers = l
+                attnLoading = false
+                if l.count < 10 { attnEnd = true }
+            }
+        }
+    }
+    private func loadMoreAttention() {
+        guard !attnLoading && !attnEnd else { return }
+        attnLoading = true
+        attnPage += 1
+        Task {
+            let l = await API.shared.attentionListUsers(page: attnPage) ?? []
+            await MainActor.run {
+                let known = Set(attentionUsers.compactMap { $0["mu_id"] as? String })
+                let fresh = l.filter { u in
+                    let id = u["mu_id"] as? String ?? (u["mu_id"] as? Int).map(String.init) ?? ""
+                    return !known.contains(id)
+                }
+                if fresh.isEmpty { attnEnd = true }
+                attentionUsers += fresh
+                attnLoading = false
+            }
+        }
+    }
+
+    /// 作者主页（资料+作品，本地过滤广场前几页）
+    private func openProfile(_ ap: AuthorProfile) {
+        profile = ap
+    }
+
     private func load() {
         loading = true; loadError = ""
         squarePage = 1; squareEnd = false
@@ -262,12 +342,8 @@ struct VideoFeedView: View {
                 items = (l ?? []).map { VideoItem($0) }
                 if l == nil { err = "加载失败" }
             case 2:
-                let l = await API.shared.attentionListUsers()
-                await MainActor.run {
-                    attentionUsers = l ?? []
-                    if l == nil { loadError = "加载失败(需登录)" }
-                    loading = false
-                }
+                await MainActor.run { loading = false }
+                loadAttention()
                 return
             default: break
             }
