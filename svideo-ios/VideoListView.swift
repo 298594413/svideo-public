@@ -105,6 +105,14 @@ struct CommentItem: Identifiable {
     }
 }
 
+/// 滚动到底检测：内容底部在命名坐标系中的y值（v2.5 验证秒出方案）
+struct ScrollBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// 首页：热门/广场/关注 三个Tab（参考 APK 主页）+ 封面网格
 struct VideoFeedView: View {
     @ObservedObject private var cache = CacheStore.shared
@@ -200,16 +208,20 @@ struct VideoFeedView: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                            // 广场滚到底自动加载下一页
-                            if tab == 1 && !squareVideos.isEmpty {
-                                HStack(spacing: 8) {
-                                    ProgressView()
-                                    Text(loadingMore ? "加载中..." : (squareEnd ? "没有更多了" : "上拉加载更多"))
-                                        .font(.caption).foregroundColor(.gray)
+                            .padding(.bottom, 60)
+                            // 滚动到底检测（v2.5 验证：秒出）
+                            .background(
+                                GeometryReader { g in
+                                    Color.clear.preference(key: ScrollBottomKey.self,
+                                        value: g.frame(in: .named("sqScroll")).maxY)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .onAppear { loadMore() }
+                            )
+                        }
+                        .coordinateSpace(name: "sqScroll")
+                        .onPreferenceChange(ScrollBottomKey.self) { bottom in
+                            if tab == 1 && !squareVideos.isEmpty && !squareEnd
+                                && !loadingMore && bottom < UIScreen.main.bounds.height + 60 {
+                                loadMore()
                             }
                         }
                     }
