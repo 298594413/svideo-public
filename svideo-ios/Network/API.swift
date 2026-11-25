@@ -402,10 +402,10 @@ final class API {
         }
     }
 
-    /// 关注列表（实测需 uId，返回关注的用户数组）
-    func attentionListUsers() async -> [[String: Any]]? {
+    /// 关注列表（实测需 uId，累积式分页：page=N 返回前 N*20 条）
+    func attentionListUsers(page: Int = 1) async -> [[String: Any]]? {
         let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
-        let enc = aesEncryptHex("{\"uId\":\"\(uid)\"}")
+        let enc = aesEncryptHex("{\"uId\":\"\(uid)\",\"page\":\(page),\"perPage\":20}")
         let r = await call("/api/community/attentionList", params: ["data": enc])
         guard let data = r?["data"] else { return nil }
         if let arr = data as? [[String: Any]] { return arr }
