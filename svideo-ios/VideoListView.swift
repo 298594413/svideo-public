@@ -267,6 +267,8 @@ struct VideoFeedView: View {
                 }
                 loading = false
                 loadError = err
+                // 预加载本页封面（滑动时秒出）
+                ImageCache.shared.prefetch(items.map { $0.coverURL })
             }
         }
     }
@@ -310,15 +312,58 @@ final class ImageCache {
         if let m = mem.object(forKey: url.absoluteString as NSString) { return m }
         return UIImage(contentsOfFile: diskURL(url.absoluteString).path)
     }
-    func load(url: URL?, completion: @escaping (UIImage?) -> Void) {
+    func load(url: URL?, targetSize: CGSize = CGSize(width: 360, height: 540),
+              completion: @escaping (UIImage?) -> Void) {
         guard let url = url else { completion(nil); return }
         if let hit = cachedImage(for: url) { completion(hit); return }
+        // 磁盘缓存直接降采样读取
+        let disk = diskURL(url.absoluteString)
+        if FileManager.default.fileExists(atPath: disk.path) {
+            if let img = downsample(file: disk, to: targetSize) {
+                mem.setObject(img, forKey: url.absoluteString as NSString)
+                completion(img); return
+            }
+        }
         URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data = data, let img = UIImage(data: data) else { completion(nil); return }
-            self.mem.setObject(img, forKey: url.absoluteString as NSString)
-            try? data.write(to: self.diskURL(url.absoluteString))
+            guard let data = data else { completion(nil); return }
+            try? data.write(to: disk)
+            let img = self.downsample(data: data, to: targetSize) ?? UIImage(data: data)
+            if let img = img { self.mem.setObject(img, forKey: url.absoluteString as NSString) }
             DispatchQueue.main.async { completion(img) }
         }.resume()
+    }
+
+    /// 按目标尺寸降采样解码（ImageIO，省内存省解码时间）
+    private func downsample(data: Data, to size: CGSize) -> UIImage? {
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height),
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+    private func downsample(file: URL, to size: CGSize) -> UIImage? {
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height),
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let src = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    /// 批量预加载封面（列表加载后调用）
+    func prefetch(_ urls: [URL?]) {
+        DispatchQueue.global(qos: .utility).async {
+            for u in urls.compactMap({ $0 }) {
+                if self.cachedImage(for: u) == nil {
+                    self.load(url: u) { _ in }   // 拉进磁盘缓存
+                }
+            }
+        }
     }
 }
 
@@ -342,7 +387,7 @@ struct VideoGridCell: View {
                     Color.gray.opacity(0.25)
                         .frame(width: geo.size.width, height: geo.size.height - 25)
                     Color.clear.onAppear {
-                        ImageCache.shared.load(url: v.coverURL.flatMap(URL.init)) { im in
+                        ImageCache.shared.load(url: v.coverURL.flatMap(URL.init), targetSize: CGSize(width: 360, height: 540)) { im in
                             self.img = im
                         }
                     }
