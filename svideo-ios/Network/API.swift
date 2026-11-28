@@ -413,6 +413,17 @@ final class API {
         return nil
     }
 
+    /// 作者主页（getUserInfo 带分页：资料 + video_list 作品列表，APK UserInformationActivity 同款）
+    func userWorks(muId: String, page: Int = 1) async -> (profile: [String: Any], videos: [[String: Any]])? {
+        let me = UserDefaults.standard.string(forKey: "mu_id") ?? ""
+        let enc = aesEncryptHex("{\"uId\":\"\(muId)\",\"meId\":\"\(me)\",\"page\":\(page),\"perPage\":10}")
+        let r = await call("/api/users/getUserInfo", params: ["data": enc])
+        guard let data = r?["data"] as? [String: Any] else { return nil }
+        var vids: [[String: Any]] = []
+        if let vl = data["video_list"] as? [[String: Any]] { vids = vl }
+        return (data, vids)
+    }
+
     /// 关注用户（实测参数 attentionId + uId，带token）
     func followUser(attentionId: String) async -> [String: Any]? {
         let uid = UserDefaults.standard.string(forKey: "mu_id") ?? ""
