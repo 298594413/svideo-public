@@ -773,74 +773,93 @@ struct AuthorProfile: Identifiable {
     let name: String
 }
 
-/// 作者主页：资料 + TA的作品（listAll 拉广场页后本地过滤）
+/// 作者主页：真接口 getUserInfo（资料+作品分页，APK UserInformationActivity 同款）
 struct AuthorProfileView: View {
     let profile: AuthorProfile
+    @ObservedObject private var cache = CacheStore.shared
+    @State private var info: [String: Any] = [:]
     @State private var videos: [VideoItem] = []
+    @State private var page = 1
+    @State private var end = false
     @State private var loading = true
 
+    private let cols = [GridItem(.flexible(),spacing:2),GridItem(.flexible(),spacing:2)]
+
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.system(size: 54)).foregroundColor(.blue)
-                        VStack(alignment: .leading) {
-                            Text(profile.name).font(.title3).bold()
-                            Text("uid: \(profile.muId)").font(.caption).foregroundColor(.gray)
-                        }
-                        Spacer()
-                        NavigationLink {
-                            ChatDetailView(otherUid: profile.muId, otherName: profile.name)
-                        } label: {
-                            Label("私信TA", systemImage: "bubble.left.and.bubble.right")
-                                .font(.subheadline)
-                        }
-                        .buttonStyle(.bordered)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    CachedThumb(url: info["mu_avatar"] as? String)
+                        .frame(width: 54, height: 54).clipped().cornerRadius(27)
+                    VStack(alignment: .leading) {
+                        Text(info["mu_name"] as? String ?? profile.name).font(.title3).bold()
+                        HStack(spacing: 12) {
+                            Text("粉丝 \(info["mu_attention_me_count"] as? String ?? "0")")
+                            Text("作品播放 \(info["play_count"] as? String ?? "0")")
+                            Text("\(info["levelName"] as? String ?? "")")
+                        }.font(.caption).foregroundColor(.gray)
                     }
+                    Spacer()
+                    NavigationLink {
+                        ChatDetailView(otherUid: profile.muId, otherName: profile.name)
+                    } label: {
+                        Label("私信TA", systemImage: "bubble.left.and.bubble.right")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                Text("TA的作品 (\(videos.count))").font(.subheadline).bold()
                     .padding(.horizontal)
-                    .padding(.top, 8)
 
-                    Text("TA的作品 (\(videos.count))").font(.subheadline).bold()
-                        .padding(.horizontal)
-
-                    if loading {
-                        ProgressView().padding(30).frame(maxWidth: .infinity)
-                    } else if videos.isEmpty {
-                        Text("暂无作品").font(.caption).foregroundColor(.gray)
-                            .padding(.horizontal).padding(.vertical, 8)
-                    } else {
-                        LazyVGrid(columns: [GridItem(.flexible(),spacing:2),GridItem(.flexible(),spacing:2)], spacing: 2) {
-                            ForEach(videos) { v in
-                                VideoGridCell(v: v, cache: .shared)
-                            }
+                if loading && videos.isEmpty {
+                    ProgressView().padding(30).frame(maxWidth: .infinity)
+                } else if videos.isEmpty {
+                    Text("暂无作品").font(.caption).foregroundColor(.gray)
+                        .padding(.horizontal).padding(.vertical, 8)
+                } else {
+                    LazyVGrid(columns: cols, spacing: 2) {
+                        ForEach(videos) { v in
+                            VideoGridCell(v: v, cache: cache)
                         }
-                        .padding(.horizontal, 2)
+                    }
+                    .padding(.horizontal, 2)
+                    // 滚动加载更多作品
+                    if !end {
+                        Color.clear.frame(height: 40)
+                            .onAppear { loadMore() }
                     }
                 }
             }
-            .navigationTitle("作者主页")
-            .navigationBarTitleDisplayMode(.inline)
         }
-        .onAppear { load() }
+        .navigationTitle("作者主页")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { if videos.isEmpty && loading { load(page: 1) } }
     }
 
-    private func load() {
+    private func load(page p: Int) {
         Task {
-            // 拉前5页广场，本地过滤该作者
-            var mine: [VideoItem] = []
-            for pg in 1...5 {
-                let l = await API.shared.squareList(page: pg) ?? []
-                let filtered = l.map { VideoItem($0) }.filter { $0.authorUid == profile.muId }
-                mine += filtered
-                if l.isEmpty { break }
-            }
+            let r = await API.shared.userWorks(muId: profile.muId, page: p)
             await MainActor.run {
-                videos = mine
+                if let r = r {
+                    info = r.profile
+                    let items = r.videos.map { VideoItem($0) }
+                    if p == 1 { videos = items } else { videos += items }
+                    if r.videos.isEmpty { end = true }
+                    page = p
+                    // 预加载封面
+                    ImageCache.shared.prefetch(items.map { $0.coverURL.flatMap(URL.init) })
+                }
                 loading = false
             }
         }
+    }
+    private func loadMore() {
+        guard !loading && !end else { return }
+        loading = true
+        load(page: page + 1)
     }
 }
 
