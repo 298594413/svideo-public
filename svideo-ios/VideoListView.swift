@@ -556,9 +556,6 @@ struct VideoDetailView: View {
                         if let url = playerURL {
                             VideoPlayerView(url: url)
                                 .frame(height: 250)
-                                .onDisappear {
-                                    NotificationCenter.default.post(name: NSNotification.Name("StopPlayer"), object: nil)
-                                }
                         } else {
                             ZStack {
                                 Rectangle().fill(Color.black).frame(height: 250)
@@ -739,6 +736,7 @@ struct VideoDetailView: View {
 /// 播放器：AVPlayer 直接播远程URL（边下边播），本地缓存优先
 struct VideoPlayerView: UIViewControllerRepresentable {
     let url: URL
+    var isActive: Bool = true   // false = 应当停止
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         // 激活播放音频会话（否则静音键开着/后台时无声）
@@ -749,20 +747,30 @@ struct VideoPlayerView: UIViewControllerRepresentable {
         player.play()
         vc.player = player
         vc.videoGravity = .resizeAspect
-        // 播放界面销毁通知 → 暂停+释放（修退出后音频残留）
+        // 定向停止：只响应带自己 token 的通知（防广播误杀其他正在播的播放器）
+        let token = context.coordinator.token
         context.coordinator.observer = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("StopPlayer"), object: nil, queue: .main) { [weak player] _ in
+            forName: NSNotification.Name("StopPlayer"), object: token, queue: .main) { [weak player] _ in
             player?.pause()
             player?.replaceCurrentItem(with: nil)
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
         return vc
     }
-    func updateUIViewController(_ u: AVPlayerViewController, context: Context) {}
+    func updateUIViewController(_ u: AVPlayerViewController, context: Context) {
+        // isActive=false（详情页关闭）→ 暂停+清空（定向，只影响自己）
+        if !isActive {
+            u.player?.pause()
+            u.player?.replaceCurrentItem(with: nil)
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
     func makeCoordinator() -> Coordinator { Coordinator() }
     class Coordinator {
         var observer: AnyObject?
-        deinit { if let o = observer { NotificationCenter.default.removeObserver(o) } }
+        let token = NSObject()   // 每个播放器实例唯一的停止令牌
+        deinit {
+            if let o = observer { NotificationCenter.default.removeObserver(o) }
+        }
     }
 }
 
