@@ -782,6 +782,7 @@ struct AuthorProfileView: View {
     @State private var page = 1
     @State private var end = false
     @State private var loading = true
+    @State private var selected: VideoItem?
 
     private let cols = [GridItem(.flexible(),spacing:2),GridItem(.flexible(),spacing:2)]
 
@@ -823,6 +824,8 @@ struct AuthorProfileView: View {
                     LazyVGrid(columns: cols, spacing: 2) {
                         ForEach(videos) { v in
                             VideoGridCell(v: v, cache: cache)
+                                .onTapGesture { selected = v }
+                                .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 2)
@@ -836,6 +839,9 @@ struct AuthorProfileView: View {
         }
         .navigationTitle("作者主页")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selected) { v in
+            VideoDetailView(v: v, cache: cache)
+        }
         .onAppear { if videos.isEmpty && loading { load(page: 1) } }
     }
 
